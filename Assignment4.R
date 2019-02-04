@@ -11,7 +11,11 @@
 #       of the datasets
 ####################################################################
 
-# read in the test and the train data sets
+library(dplyr)
+library(tidyr)
+
+# the zip file of the data was manually downloaded and unzipped locally
+
 test <- read_delim ("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/test/X_test.txt", delim=" ", col_names = FALSE)
 train <- read_delim ("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/train/X_train.txt", delim=" ", col_names = FALSE)
 
@@ -22,31 +26,56 @@ subsetTest <- test[ ,1:6]
 subsetTrain <- train[ ,1:6]
 
 # rename columns
-names(subsetTest)[1:6] <- c("bodyAccelMean_X", "bodyAccelMean_Y", "bodyAccelMean_Z", "bodyAccelStdDev_X", "bodyAccelStdDev_Y", "bodyAccelStdDev_Z")
-names(subsetTrain)[1:6] <- c("bodyAccelMean_X", "bodyAccelMean_Y", "bodyAccelMean_Z", "bodyAccelStdDev_X", "bodyAccelStdDev_Y", "bodyAccelStdDev_Z")
+#names(subsetTest)[1:6] <- c("bodyAccelMean_X", "bodyAccelMean_Y", "bodyAccelMean_Z", "bodyAccelStdDev_X", "bodyAccelStdDev_Y", "bodyAccelStdDev_Z")
+#names(subsetTrain)[1:6] <- c("bodyAccelMean_X", "bodyAccelMean_Y", "bodyAccelMean_Z", "bodyAccelStdDev_X", "bodyAccelStdDev_Y", "bodyAccelStdDev_Z")
 
 # add column to specify whether the data set is Test or Train
-subsetTest <- mutate(subsetTest, observationType = "Test")
-subsetTrain <- mutate(subsetTest, observationType = "Train")
+subsetTest <- mutate(subsetTest, observationType="Test")
+subsetTrain <- mutate(subsetTrain, observationType="Train")
 
+# read in subject data
+testSubject <- read.table("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/test/subject_test.txt", col.names = c("subject"))
+trainSubject <- read.table("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/train/subject_train.txt", col.names = c("subject"))
+
+# read in activity data
+testActivity <- read.table("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/test/y_test.txt", col.names = c("activity"))
+trainActivity <- read.table("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/train/y_train.txt", col.names = c("activity"))
+
+# combine columns together
+subsetTest <- cbind(subsetTest, testSubject, testActivity)
+subsetTrain <- cbind(subsetTrain, trainSubject, trainActivity)
 
 # combine data frames, this is the Tidy data set of the combined Test and Train data sets
-bodyAccelStats <- tbl_df(rbind(subsetTest, subsetTrain, stringsAsFactors = FALSE))
+statsData <- tbl_df(rbind(subsetTest, subsetTrain, stringsAsFactors = FALSE))
 
+ # measurement names
+measurements <- read.table("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/features.txt", col.names = c("id", "name"))
+# subset and make more understandable names
+subsetMeasurements <- measurements[1:6, ]
+subsetMeasurementsNames <- c(as.vector(subsetMeasurements[,"name"]))
+subsetMeasurementsNames <- gsub("tBody", "body", subsetMeasurementsNames)
+subsetMeasurementsNames <- gsub("Acc", "_acceleration", subsetMeasurementsNames)          
+subsetMeasurementsNames <- gsub("std", "standard_deviation", subsetMeasurementsNames)
+subsetMeasurementsNames <- gsub("\\(\\)", "", subsetMeasurementsNames)
+subsetMeasurementsNames <- gsub("-", "_", subsetMeasurementsNames)
+subsetMeasurementsNames <- tolower(subsetMeasurementsNames)
 
-# create an overall index
-idx <- 1:length(bodyAccelStats$bodyAccelMean_X)
+names(statsData) <- c(as.vector(subsetMeasurementsNames),"observationType", "subject", "activity")
 
-# Create average(mean) statistics for each variable for test and train and overall
-bodyAccelAvgStats <- data.frame(matrix(ncol = 7, nrow = 2))
-columns <- c("observationType", "AvgMean_X", "AvgMean_Y", "AvgMean_Z", "AvgStdDev_X", "AvgStdDev_Y", "AvgStdDev_Z")
-colnames(bodyAccelAvgStats) <- columns
+# activity descriptions
+activities <- read.table("./data/getdata_projectfiles_UCI HAR Dataset/UCI HAR Dataset/activity_labels.txt", col.names=c("id", "name"))
+for (i in 1:nrow(activities)) {
+  statsData$activity[statsData$activity == activities[i, "id"]] <- as.character(activities[i, "name"])
+}
 
-# this is the created tidy data set for the average statistics for Test and Train
-bodyAccelAvgStats <- bodyAccelStats %>% group_by(observationType) %>% 
-  dplyr::summarize(AvgMean_X = mean(as.numeric(bodyAccelMean_X)), 
-            AvgMean_Y = mean(as.numeric(bodyAccelMean_Y)),
-            AvgMean_Z = mean(as.numeric(bodyAccelMean_Y)),
-            AvgStdDev_X = mean(as.numeric(bodyAccelStdDev_X)),
-            AvgStdDev_Y = mean(as.numeric(bodyAccelStdDev_Y)),
-            AvgStdDev_Z = mean(as.numeric(bodyAccelStdDev_Z)))
+for (i in 1:6){
+  statsData[ ,i] <- as.numeric(as.character(unlist(statsData[ ,i])))
+}
+
+avgStatsData <- tbl_df(statsData) %>%
+  select(-observationType) %>%
+  group_by(subject, activity) %>%
+  dplyr::summarize_all(funs(average = mean)) 
+
+# Save the data into a file
+write.table(avgStatsData, file="./data/avgStatsData.txt", row.name=FALSE)
